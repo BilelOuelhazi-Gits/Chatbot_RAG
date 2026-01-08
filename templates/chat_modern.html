@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Chat RAG</title>
+<style>
+/* Reset & Fonts */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: "Inter", system-ui, -apple-system, BlinkMacSystemFont, sans-serif; background-color: #0d0d0d; color: #e6e6e6; display: flex; height: 100vh; overflow: hidden; }
+
+/* Sidebar */
+.sidebar {
+    width: 250px;
+    background-color: #0f0f0f;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    border-right: 1px solid #1c1c1c;
+    border-radius: 0 10px 10px 0;
+    box-shadow: 2px 0 6px rgba(0,0,0,0.5);
+    transition: all 0.3s;
+}
+.sidebar.collapsed { width: 60px; }
+.sidebar h2 { font-size: 1.2rem; margin-bottom: 16px; color: #ccc; }
+.chat-item {
+    padding: 12px 14px;
+    margin-bottom: 10px;
+    background-color: #1a1a1a;
+    border-radius: 12px;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: #ccc;
+    transition: all 0.2s;
+}
+.chat-item.active { background-color: #222; color: #fff; }
+.chat-item:hover { background-color: #222; transform: translateX(2px); }
+.sidebar button {
+    margin-top: auto;
+    padding: 12px;
+    border: none;
+    border-radius: 12px;
+    cursor: pointer;
+    background-color: #222;
+    color: #ccc;
+    transition: all 0.2s;
+}
+.sidebar button:hover { background-color: #333; }
+
+/* Top bar */
+.topbar {
+    width: 100%;
+    padding: 16px;
+    text-align: center;
+    font-size: 1.1rem;
+    font-weight: 600;
+    background-color: #0f0f0f;
+    border-bottom: 1px solid #222;
+    color: #e6e6e6;
+}
+
+/* Chat Area */
+.chat-area { flex: 1; display: flex; flex-direction: column; align-items: center; overflow: hidden; }
+.messages {
+    flex: 1;
+    width: 100%;
+    max-width: 900px;
+    padding: 20px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    scroll-behavior: smooth;
+}
+
+/* Chat bubbles */
+.message {
+    max-width: 70%;
+    padding: 16px 20px;
+    margin-bottom: 12px;
+    border-radius: 16px;
+    font-size: 1rem;
+    line-height: 1.6;
+    word-wrap: break-word;
+    position: relative;
+    animation: fadeIn 0.25s ease-out;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+    transition: all 0.2s;
+}
+.user-message { background-color: #444; color: #f5f5f5; align-self: flex-end; border-bottom-right-radius: 4px; }
+.assistant-message { background-color: #333; color: #e0e0e0; align-self: flex-start; border-bottom-left-radius: 4px; }
+
+/* Floating toolbar (Copy only) */
+.message-actions {
+    display: none;
+    position: absolute;
+    top: 6px;
+    right: 6px;
+}
+.message:hover .message-actions { display: flex; }
+.message-actions button {
+    background: #444;
+    border: none;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: #fff;
+    font-size: 0.8rem;
+    transition: background 0.2s;
+}
+.message-actions button:hover { background: #666; }
+
+/* Typing animation */
+.typing span { display: inline-block; width: 6px; height: 6px; margin: 0 2px; background-color: #888; border-radius: 50%; animation: blink 1.4s infinite both; }
+.typing span:nth-child(2) { animation-delay: 0.2s; }
+.typing span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes blink { 0%,80%,100%{ transform: scale(0); opacity:0.3;} 40%{ transform:scale(1); opacity:1;} }
+
+/* Input area */
+.input-area {
+    display: flex;
+    padding: 16px;
+    background-color: #0f0f0f;
+    width: 100%;
+    max-width: 900px;
+    gap: 8px;
+}
+.input-area input {
+    flex: 1;
+    padding: 14px 18px;
+    border-radius: 999px;
+    border: 1px solid #333;
+    background-color: #111;
+    color: #e6e6e6;
+    font-size: 1rem;
+    outline: none;
+}
+.input-area input:focus { border-color: #555; box-shadow: 0 0 8px #222; }
+.input-area button {
+    padding: 12px 18px;
+    border-radius: 50%;
+    border: none;
+    background-color: #0a84ff;
+    color: #fff;
+    cursor: pointer;
+    font-weight: 600;
+    transition: background 0.2s, transform 0.2s;
+}
+.input-area button:hover { background-color: #006fe6; transform: scale(1.1); }
+
+/* Scrollbar */
+.messages::-webkit-scrollbar { width: 8px; }
+.messages::-webkit-scrollbar-track { background: #111; }
+.messages::-webkit-scrollbar-thumb { background-color: #555; border-radius: 20px; }
+
+/* Code blocks */
+pre, code { background-color: #111; color: #ccc; font-family: 'Fira Code', monospace; padding: 4px 6px; border-radius: 6px; overflow-x: auto; }
+
+/* Animations */
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+</style>
+</head>
+<body>
+
+<div class="sidebar" id="sidebar">
+    <h2>Chats</h2>
+    <div id="chatList"></div>
+    <button id="newChatBtn">+ New Chat</button>
+    <button id="toggleSidebar">Collapse</button>
+</div>
+
+<div class="chat-area">
+    <div class="topbar">Chat RAG</div>
+    <div class="messages" id="messages"></div>
+    <div class="input-area">
+        <input type="text" id="question" placeholder="Type your question...">
+        <button id="sendBtn">➤</button>
+    </div>
+</div>
+
+<script>
+// Variables
+const messagesDiv = document.getElementById('messages');
+const input = document.getElementById('question');
+const sendBtn = document.getElementById('sendBtn');
+const chatListDiv = document.getElementById('chatList');
+const sidebar = document.getElementById('sidebar');
+const toggleBtn = document.getElementById('toggleSidebar');
+const newChatBtn = document.getElementById('newChatBtn');
+
+let chatSessions = [];
+let currentSessionIndex = -1;
+
+// Functions
+function newChat() {
+    const session = { name: `Chat ${chatSessions.length + 1}`, history: [] };
+    chatSessions.push(session);
+    currentSessionIndex = chatSessions.length - 1;
+    renderSidebar();
+    renderMessages();
+}
+newChatBtn.addEventListener('click', newChat);
+
+toggleBtn.addEventListener('click', () => {
+    sidebar.classList.toggle('collapsed');
+    toggleBtn.textContent = sidebar.classList.contains('collapsed') ? 'Expand' : 'Collapse';
+});
+
+function renderSidebar() {
+    chatListDiv.innerHTML = '';
+    chatSessions.forEach((session, idx) => {
+        const div = document.createElement('div');
+        div.className = 'chat-item' + (idx === currentSessionIndex ? ' active' : '');
+        div.textContent = session.name;
+        div.onclick = () => { currentSessionIndex = idx; renderMessages(); renderSidebar(); };
+        chatListDiv.appendChild(div);
+    });
+}
+
+// Message toolbar (Copy only)
+function addCopyAction(div, answerText, sources=[]) {
+    const actions = document.createElement('div');
+    actions.className = 'message-actions';
+    const copyBtn = document.createElement('button');
+    copyBtn.textContent = 'Copy';
+    copyBtn.title = "Copy to clipboard";
+    copyBtn.onclick = () => {
+        let textToCopy = answerText;
+        if(sources.length) textToCopy += '\nSources: ' + [...new Set(sources.map(s => s.replace(/\.pdf$/i,'')))].join(', ');
+        navigator.clipboard.writeText(textToCopy);
+    };
+    actions.appendChild(copyBtn);
+    div.appendChild(actions);
+}
+
+// Typing animation for answer only
+function typeAnswer(answerText, sources=[], typingDiv) {
+    let index = 0;
+    const interval = setInterval(() => {
+        typingDiv.innerHTML = answerText.substring(0, index) + '<span class="typing"><span></span><span></span><span></span></span>';
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        index++;
+        if (index > answerText.length) {
+            clearInterval(interval);
+            typingDiv.innerHTML = answerText;
+
+            if (sources.length) {
+                const sourcesDiv = document.createElement('div');
+                sourcesDiv.style.fontSize = '0.8rem';
+                sourcesDiv.style.color = '#aaa';
+
+                // Remove duplicates and strip .pdf
+                const uniqueSources = [...new Set(sources.map(s => s.replace(/\.pdf$/i, '')))];
+
+                sourcesDiv.innerHTML = 'Sources: ' + uniqueSources.join(', ');
+                typingDiv.appendChild(sourcesDiv);
+            }
+
+            addCopyAction(typingDiv, answerText, sources);
+        }
+    }, 20);
+}
+
+// Render existing messages
+function renderMessages() {
+    messagesDiv.innerHTML = '';
+    if (currentSessionIndex < 0) return;
+    const session = chatSessions[currentSessionIndex];
+    session.history.forEach(msg => addMessage(msg.text, msg.type, false));
+}
+
+// Add a message
+function addMessage(text, type='user', save=true) {
+    const div = document.createElement('div');
+    div.className = `message ${type}-message`;
+    div.innerHTML = text;
+    messagesDiv.appendChild(div);
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    if (save && currentSessionIndex >= 0) {
+        chatSessions[currentSessionIndex].history.push({text, type});
+    }
+}
+
+// Add typing placeholder
+function addThinking() {
+    const div = document.createElement('div');
+    div.className = 'message assistant-message typing';
+    div.innerHTML = '<span></span><span></span><span></span>';
+    messagesDiv.appendChild(div);
+    messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    return div;
+}
+
+// Send question
+async function sendQuestion() {
+    const question = input.value.trim();
+    if (!question || currentSessionIndex < 0) return;
+    addMessage(question, 'user');
+    input.value = '';
+    const thinkingDiv = addThinking();
+    try {
+        const response = await fetch('/ask', {
+            method: 'POST',
+            headers: {'Content-Type':'application/json'},
+            body: JSON.stringify({question})
+        });
+        const data = await response.json();
+        thinkingDiv.remove();
+        if (data.answer) {
+            const answerDiv = document.createElement('div');
+            answerDiv.className = 'message assistant-message';
+            messagesDiv.appendChild(answerDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            typeAnswer(data.answer, data.sources || [], answerDiv);
+            if (currentSessionIndex >= 0) chatSessions[currentSessionIndex].history.push({text: data.answer, type: 'assistant'});
+        } else addMessage('Error: no answer returned.', 'assistant');
+    } catch(err) {
+        thinkingDiv.remove();
+        addMessage('Error connecting to server.', 'assistant');
+    }
+}
+
+sendBtn.addEventListener('click', sendQuestion);
+input.addEventListener('keypress', e => { if(e.key==='Enter') sendQuestion(); });
+
+window.onload = async () => {
+    try {
+        const response = await fetch('/history');
+        const history = await response.json();
+        if (history.length > 0) {
+            newChat();
+            history.forEach(item => {
+                addMessage(item.question, 'user');
+                addMessage(item.answer, 'assistant');
+            });
+        } else newChat();
+    } catch(e) { newChat(); }
+}
+</script>
+
+</body>
+</html>
